@@ -1,0 +1,36 @@
+# ===== RoadSOS root ignores =====
+
+# Python virtual environment (~500 MB)
+.venv/
+
+# Downloaded ML model artifact (~1.9 GB)
+# Re-fetch with: roadsos/backend/scripts/download_model.py
+model_cache/
+**/road_accident_model.pkl
+models/
+
+# Local scratch logs
+*.log
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+serviceAccountKey.json
+**/serviceAccountKey.json
+
+# Node / build outputs
+node_modules/
+**/node_modules/
+build/
+**/build/
+.dart_tool/
+**/.dart_tool/
+
+# Python caches
+__pycache__/
+**/__pycache__/
+*.pyc

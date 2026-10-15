@@ -1,0 +1,325 @@
+{
+  "schema_version": "1.0",
+  "model": {
+    "name": "road-accident-severity-prediction",
+    "author": "hayamwahdan",
+    "framework": "scikit-learn RandomForestClassifier",
+    "huggingface_repo": "hayamwahdan/road-accident-severity-prediction",
+    "huggingface_revision": "c4a7daf40b05e506c3c00aca7c8ab00bc00db53c",
+    "artifact_filename": "road_accident_model.pkl",
+    "artifact_size_bytes": 1965071297,
+    "license": "MIT",
+    "n_estimators": 100,
+    "reported_accuracy": 0.8003
+  },
+  "n_features": 61,
+  "feature_order": [
+    "Year",
+    "Latitude",
+    "Longitude",
+    "Speed_limit",
+    "Hour",
+    "Day_of_Week_Monday",
+    "Day_of_Week_Saturday",
+    "Day_of_Week_Sunday",
+    "Day_of_Week_Thursday",
+    "Day_of_Week_Tuesday",
+    "Day_of_Week_Wednesday",
+    "Month_Aug",
+    "Month_Dec",
+    "Month_Feb",
+    "Month_Jan",
+    "Month_Jul",
+    "Month_Jun",
+    "Month_Mar",
+    "Month_May",
+    "Month_Nov",
+    "Month_Oct",
+    "Month_Sep",
+    "Junction_Control_Auto traffic signal",
+    "Junction_Control_Data missing or out of range",
+    "Junction_Control_Give way or uncontrolled",
+    "Junction_Control_Not at junction or within 20 metres",
+    "Junction_Control_Stop sign",
+    "Light_Conditions_Darkness - lights lit",
+    "Light_Conditions_Darkness - lights unlit",
+    "Light_Conditions_Darkness - no lighting",
+    "Light_Conditions_Daylight",
+    "Road_Surface_Conditions_Flood over 3cm. deep",
+    "Road_Surface_Conditions_Frost or ice",
+    "Road_Surface_Conditions_Snow",
+    "Road_Surface_Conditions_Wet or damp",
+    "Road_Type_One way street",
+    "Road_Type_Roundabout",
+    "Road_Type_Single carriageway",
+    "Road_Type_Slip road",
+    "Urban_or_Rural_Area_Urban",
+    "Weather_Conditions_Fine no high winds",
+    "Weather_Conditions_Fog or mist",
+    "Weather_Conditions_Other",
+    "Weather_Conditions_Raining + high winds",
+    "Weather_Conditions_Raining no high winds",
+    "Weather_Conditions_Snowing + high winds",
+    "Weather_Conditions_Snowing no high winds",
+    "Vehicle_Type_Bus or coach (17 or more pass seats)",
+    "Vehicle_Type_Car",
+    "Vehicle_Type_Goods 7.5 tonnes mgw and over",
+    "Vehicle_Type_Goods over 3.5t. and under 7.5t",
+    "Vehicle_Type_Minibus (8 - 16 passenger seats)",
+    "Vehicle_Type_Motorcycle 125cc and under",
+    "Vehicle_Type_Motorcycle 50cc and under",
+    "Vehicle_Type_Motorcycle over 125cc and up to 500cc",
+    "Vehicle_Type_Motorcycle over 500cc",
+    "Vehicle_Type_Other vehicle",
+    "Vehicle_Type_Pedal cycle",
+    "Vehicle_Type_Ridden horse",
+    "Vehicle_Type_Taxi/Private hire car",
+    "Vehicle_Type_Van / Goods 3.5 tonnes mgw or under"
+  ],
+  "numeric_features": [
+    {
+      "name": "Year"
+    },
+    {
+      "name": "Latitude"
+    },
+    {
+      "name": "Longitude"
+    },
+    {
+      "name": "Speed_limit"
+    },
+    {
+      "name": "Hour"
+    }
+  ],
+  "categorical_features": [
+    {
+      "name": "Day_of_Week",
+      "values": [
+        "Friday",
+        "Monday",
+        "Saturday",
+        "Sunday",
+        "Thursday",
+        "Tuesday",
+        "Wednesday"
+      ],
+      "baseline": "Friday",
+      "onehot": {
+        "Monday": "Day_of_Week_Monday",
+        "Saturday": "Day_of_Week_Saturday",
+        "Sunday": "Day_of_Week_Sunday",
+        "Thursday": "Day_of_Week_Thursday",
+        "Tuesday": "Day_of_Week_Tuesday",
+        "Wednesday": "Day_of_Week_Wednesday"
+      }
+    },
+    {
+      "name": "Month",
+      "values": [
+        "Apr",
+        "Aug",
+        "Dec",
+        "Feb",
+        "Jan",
+        "Jul",
+        "Jun",
+        "Mar",
+        "May",
+        "Nov",
+        "Oct",
+        "Sep"
+      ],
+      "baseline": "Apr",
+      "onehot": {
+        "Aug": "Month_Aug",
+        "Dec": "Month_Dec",
+        "Feb": "Month_Feb",
+        "Jan": "Month_Jan",
+        "Jul": "Month_Jul",
+        "Jun": "Month_Jun",
+        "Mar": "Month_Mar",
+        "May": "Month_May",
+        "Nov": "Month_Nov",
+        "Oct": "Month_Oct",
+        "Sep": "Month_Sep"
+      }
+    },
+    {
+      "name": "Junction_Control",
+      "values": [
+        "Authorised person",
+        "Auto traffic signal",
+        "Data missing or out of range",
+        "Give way or uncontrolled",
+        "Not at junction or within 20 metres",
+        "Stop sign"
+      ],
+      "baseline": "Authorised person",
+      "onehot": {
+        "Auto traffic signal": "Junction_Control_Auto traffic signal",
+        "Data missing or out of range": "Junction_Control_Data missing or out of range",
+        "Give way or uncontrolled": "Junction_Control_Give way or uncontrolled",
+        "Not at junction or within 20 metres": "Junction_Control_Not at junction or within 20 metres",
+        "Stop sign": "Junction_Control_Stop sign"
+      }
+    },
+    {
+      "name": "Light_Conditions",
+      "values": [
+        "Darkness - lighting unknown",
+        "Darkness - lights lit",
+        "Darkness - lights unlit",
+        "Darkness - no lighting",
+        "Daylight"
+      ],
+      "baseline": "Darkness - lighting unknown",
+      "onehot": {
+        "Darkness - lights lit": "Light_Conditions_Darkness - lights lit",
+        "Darkness - lights unlit": "Light_Conditions_Darkness - lights unlit",
+        "Darkness - no lighting": "Light_Conditions_Darkness - no lighting",
+        "Daylight": "Light_Conditions_Daylight"
+      }
+    },
+    {
+      "name": "Road_Surface_Conditions",
+      "values": [
+        "Dry",
+        "Flood over 3cm. deep",
+        "Frost or ice",
+        "Snow",
+        "Wet or damp"
+      ],
+      "baseline": "Dry",
+      "onehot": {
+        "Flood over 3cm. deep": "Road_Surface_Conditions_Flood over 3cm. deep",
+        "Frost or ice": "Road_Surface_Conditions_Frost or ice",
+        "Snow": "Road_Surface_Conditions_Snow",
+        "Wet or damp": "Road_Surface_Conditions_Wet or damp"
+      }
+    },
+    {
+      "name": "Road_Type",
+      "values": [
+        "Dual carriageway",
+        "One way street",
+        "Roundabout",
+        "Single carriageway",
+        "Slip road"
+      ],
+      "baseline": "Dual carriageway",
+      "onehot": {
+        "One way street": "Road_Type_One way street",
+        "Roundabout": "Road_Type_Roundabout",
+        "Single carriageway": "Road_Type_Single carriageway",
+        "Slip road": "Road_Type_Slip road"
+      }
+    },
+    {
+      "name": "Urban_or_Rural_Area",
+      "values": [
+        "Rural",
+        "Urban"
+      ],
+      "baseline": "Rural",
+      "onehot": {
+        "Urban": "Urban_or_Rural_Area_Urban"
+      }
+    },
+    {
+      "name": "Weather_Conditions",
+      "values": [
+        "Fine + high winds",
+        "Fine no high winds",
+        "Fog or mist",
+        "Other",
+        "Raining + high winds",
+        "Raining no high winds",
+        "Snowing + high winds",
+        "Snowing no high winds"
+      ],
+      "baseline": "Fine + high winds",
+      "onehot": {
+        "Fine no high winds": "Weather_Conditions_Fine no high winds",
+        "Fog or mist": "Weather_Conditions_Fog or mist",
+        "Other": "Weather_Conditions_Other",
+        "Raining + high winds": "Weather_Conditions_Raining + high winds",
+        "Raining no high winds": "Weather_Conditions_Raining no high winds",
+        "Snowing + high winds": "Weather_Conditions_Snowing + high winds",
+        "Snowing no high winds": "Weather_Conditions_Snowing no high winds"
+      }
+    },
+    {
+      "name": "Vehicle_Type",
+      "values": [
+        "Agricultural vehicle",
+        "Bus or coach (17 or more pass seats)",
+        "Car",
+        "Goods 7.5 tonnes mgw and over",
+        "Goods over 3.5t. and under 7.5t",
+        "Minibus (8 - 16 passenger seats)",
+        "Motorcycle 125cc and under",
+        "Motorcycle 50cc and under",
+        "Motorcycle over 125cc and up to 500cc",
+        "Motorcycle over 500cc",
+        "Other vehicle",
+        "Pedal cycle",
+        "Ridden horse",
+        "Taxi/Private hire car",
+        "Van / Goods 3.5 tonnes mgw or under"
+      ],
+      "baseline": "Agricultural vehicle",
+      "onehot": {
+        "Bus or coach (17 or more pass seats)": "Vehicle_Type_Bus or coach (17 or more pass seats)",
+        "Car": "Vehicle_Type_Car",
+        "Goods 7.5 tonnes mgw and over": "Vehicle_Type_Goods 7.5 tonnes mgw and over",
+        "Goods over 3.5t. and under 7.5t": "Vehicle_Type_Goods over 3.5t. and under 7.5t",
+        "Minibus (8 - 16 passenger seats)": "Vehicle_Type_Minibus (8 - 16 passenger seats)",
+        "Motorcycle 125cc and under": "Vehicle_Type_Motorcycle 125cc and under",
+        "Motorcycle 50cc and under": "Vehicle_Type_Motorcycle 50cc and under",
+        "Motorcycle over 125cc and up to 500cc": "Vehicle_Type_Motorcycle over 125cc and up to 500cc",
+        "Motorcycle over 500cc": "Vehicle_Type_Motorcycle over 500cc",
+        "Other vehicle": "Vehicle_Type_Other vehicle",
+        "Pedal cycle": "Vehicle_Type_Pedal cycle",
+        "Ridden horse": "Vehicle_Type_Ridden horse",
+        "Taxi/Private hire car": "Vehicle_Type_Taxi/Private hire car",
+        "Van / Goods 3.5 tonnes mgw or under": "Vehicle_Type_Van / Goods 3.5 tonnes mgw or under"
+      }
+    }
+  ],
+  "class_order": [
+    "Fatal",
+    "Serious",
+    "Slight"
+  ],
+  "class_labels": {
+    "0": "Fatal",
+    "1": "Serious",
+    "2": "Slight"
+  },
+  "validation": {
+    "speed_limit_allowed": [
+      10,
+      15,
+      20,
+      30,
+      40,
+      50,
+      60,
+      70
+    ],
+    "year_min": 1900,
+    "year_max": 2100,
+    "hour_min": 0,
+    "hour_max": 23,
+    "latitude_min": -90.0,
+    "latitude_max": 90.0,
+    "longitude_min": -180.0,
+    "longitude_max": 180.0
+  },
+  "_audit": {
+    "uncovered_features": [],
+    "unknown_covered_features": []
+  }
+}

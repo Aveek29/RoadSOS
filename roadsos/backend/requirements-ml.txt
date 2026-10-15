@@ -1,0 +1,27 @@
+# ---------------------------------------------------------------------------
+# RoadSOS backend — OPTIONAL machine-learning inference requirements
+# ---------------------------------------------------------------------------
+# The core emergency backend (app.py, routes/, services/) runs WITHOUT these.
+# They are only needed for the advisory accident-severity endpoints:
+#   GET  /api/v1/model/health
+#   GET  /api/v1/predictions/schema
+#   POST /api/v1/predictions/severity
+#   POST /api/v1/incidents/<id>/severity-prediction
+#
+# Install:
+#   pip install -r requirements.txt -r requirements-ml.txt
+#
+# Python note: this project targets Python 3.13. pandas 2.2.2 (the release
+# used during model training) has no cp313 wheels; 2.2.3 is the closest
+# patch-level pin that installs on 3.13. scikit-learn is pinned to the exact
+# version recorded in the model artifact's metadata.
+# ---------------------------------------------------------------------------
+
+scikit-learn==1.6.1
+pandas==2.2.3
+numpy==2.5.4
+scipy==1.18.1
+joblib==1.6.0
+
+# --- tests (real pytest run: cd backend && python -m pytest) --------------
+pytest==9.1.1

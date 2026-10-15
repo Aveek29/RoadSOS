@@ -1,0 +1,53 @@
+# Package directories
+node_modules/
+frontend_dashboard/node_modules/
+frontend_dashboard/build/
+.eslintcache
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+roadsos_app/.dart_tool/
+roadsos_app/build/
+roadsos_app/.flutter-plugins
+roadsos_app/.flutter-plugins-dependencies
+roadsos_app/android/build/
+roadsos_app/ios/Flutter/.flutter-plugins
+roadsos_app/ios/Flutter/.flutter-plugins-dependencies
+
+# Python backend
+__pycache__/
+*.pyc
+backend_command_center/__pycache__/
+backend_command_center/serviceAccountKey.json
+.env
+.env.*
+!.env.example
+.venv/
+env/
+venv/
+
+# ML model artifacts — never committed (fetch with backend/scripts/download_model.py)
+models/
+*.pkl
+*.pickle
+*.joblib
+
+# Firebase credentials — never committed
+serviceAccountKey.json
+**/serviceAccountKey.json
+firebase-service-account*.json
+
+# System / OS
+.DS_Store
+Thumbs.db
+
+# IDE Configurations
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
