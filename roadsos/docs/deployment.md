@@ -1,8 +1,14 @@
 # Deployment & run book
 
-Verified in this environment (Windows, Python 3.13, Node, Flutter 3.47.7).
+Verified in this environment (Windows, Python 3.13, Node, Flutter 3.x).
 Steps that were **not** executed (production WSGI, Android APK build) are marked
 so — see `docs/testing.md` §6.
+
+> **Fast path:** if you just want the commands to start and test every layer,
+> see [`test-commands.md`](test-commands.md). This file is the full first-time
+> setup run book. The **ML model runs inside the backend** — there is no
+> separate ML server; `python app.py` loads `road_accident_model.pkl` on
+> startup and serves it under `/api/v1/…`.
 
 ---
 
@@ -95,7 +101,7 @@ must include `http://localhost:3000` (or the origin you use).
 $env:Path = "<flutter-sdk>\bin;$env:Path"   # if the SDK is not on PATH
 cd roadsos/app
 flutter pub get
-flutter test                                 # 7 unit/widget tests (5 live tests skip)
+flutter test                                 # 11 unit/widget tests (8 live tests skip)
 ```
 
 **Where the backend lives — resolved centrally by `AppConfig`:**
@@ -118,16 +124,20 @@ address **once** — it can no longer drift between files. Priority:
 flutter run --dart-define=ROADSOS_BACKEND_URL=http://<PC-LAN-IP>:5000
 ```
 
-**Connection resilience (`SocketService`):** transports `polling` → upgrade to
-`websocket` (survives emulators/LANs where websocket-only fails), automatic
-reconnection with backoff, and a bounded outbox that **queues SOS events
-emitted while offline and flushes them on reconnect** so a `create_incident`
-is never silently dropped. `statusStream` exposes connectivity to the UI.
+**Connection resilience (`SocketService`):** on **web** transports are
+`polling` → upgrade to `websocket`; on **Android/iOS** it connects over
+**websocket only** (the Dart client does not implement polling on `dart:io` —
+requesting it leaves a stale `transport=polling` query and the connection never
+establishes). Automatic reconnection with backoff and a bounded outbox that
+**queues SOS events emitted while offline and flushes them on reconnect** so a
+`create_incident` is never silently dropped. `statusStream` exposes connectivity
+to the UI, and `onEvent(name)`/`serverEvents` surface inbound server events.
 
-Live end-to-end test (backend must be running):
+Live end-to-end tests (backend must be running):
 
 ```powershell
-flutter test test/live_backend_e2e_test.dart --dart-define=ROADSOS_LIVE_E2E=true
+flutter test --dart-define=ROADSOS_LIVE_E2E=true `
+             --dart-define=ROADSOS_BACKEND_URL=http://127.0.0.1:5000   # expect: 19 passed
 ```
 
 ## 4. Smoke test after any change
@@ -137,26 +147,28 @@ flutter test test/live_backend_e2e_test.dart --dart-define=ROADSOS_LIVE_E2E=true
 cd roadsos/backend; python -m pytest        # expect: 60 passed
 # dashboard
 cd ..\frontend_dashboard
-npx eslint src --ext .js,.jsx               # expect: 0 errors
-npm run build                               # expect: exit 0
+npx eslint src --ext .js,.jsx               # expect: 0 errors, 0 warnings
+$env:CI='true'; npm run build               # expect: exit 0
 $env:CI='true'; npx react-scripts test --watchAll=false   # expect: 8 passed
-# flutter (12 = 7 unit/widget + 5 live E2E, backend running)
+# flutter (19 = 11 unit/widget + 8 live, backend running)
 cd ..\app
-flutter analyze --no-pub                    # expect: 0 errors (warnings/infos exit 1)
-flutter test --dart-define=ROADSOS_LIVE_E2E=true   # expect: 12 passed
+flutter analyze                             # expect: 0 errors (warnings/infos exit 1)
+flutter test --dart-define=ROADSOS_LIVE_E2E=true `
+             --dart-define=ROADSOS_BACKEND_URL=http://127.0.0.1:5000   # expect: 19 passed
 ```
 
-**Cross-stack connectivity suite (Flutter → backend → ML, 13 checks):**
+**Cross-stack connectivity suite (backend → ML, 14 checks):**
 
 ```powershell
 # backend must be running (python app.py) — HTTP + Socket.IO end-to-end
-cd roadsos\backend; python <repo>\connectivity_test.py   # expect: 13/13 passed
+cd roadsos\backend; python scripts\connectivity_test.py   # expect: 14/14 passed
 ```
 
 Proves: health, model availability + SHA-256, schema, two predictions whose
 probabilities **shift** (live model, not canned), 400 validation, incidents,
 demo simulate, analytics, socket connect, `create_incident → incident_created`
-echo, and the `helper_respond` **ack**.
+echo, the `helper_respond` **ack**, and `update_location → location_updated`
+(the live map-marker relay the dashboard listens on).
 
 Full expected results and how they were produced: `docs/testing.md`.
 
