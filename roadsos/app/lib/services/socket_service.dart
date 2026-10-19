@@ -105,6 +105,34 @@ class SocketService {
     emit('create_incident', data);
   }
 
+  /// Emits the SOS `create_incident` and invokes [callback] with the server
+  /// ACK: `{success, incidentId, source}`. The returned `incidentId` is the
+  /// authoritative id (Firestore doc id, or a `sock_` id when the backend has
+  /// no Firestore) and should be used to start live location tracking.
+  ///
+  /// If we're currently offline the event is queued for delivery on reconnect
+  /// and the callback receives `{success: true, queued: true}` so the caller
+  /// can proceed without blocking the emergency flow.
+  void emitCreateIncidentWithAck(
+    Map<String, dynamic> data,
+    Function(dynamic ack) callback,
+  ) {
+    if (socket != null && socket!.connected) {
+      socket!.emitWithAck('create_incident', data, ack: (response) {
+        callback(response);
+      });
+      debugPrint('[Socket] Emitted create_incident with ACK');
+    } else {
+      // Queue it (outbox flushes on reconnect) so the SOS is not lost.
+      emit('create_incident', data);
+      callback({
+        'success': true,
+        'queued': true,
+        'message': 'Offline: SOS queued, will reach command centre on reconnect.',
+      });
+    }
+  }
+
   void emitUpdateLocation(String incidentId, double lat, double lng) {
     emit('update_location', {
       'incidentId': incidentId,

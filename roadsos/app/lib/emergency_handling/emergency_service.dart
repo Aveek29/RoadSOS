@@ -2,13 +2,13 @@ import 'dart:async';
 import 'countdown_manager.dart';
 import 'location_service.dart';
 import 'sms_service.dart';
-import 'firestore_service.dart';
 import '../accident_detection/events/event_dispatcher.dart';
 import '../accident_detection/engine/detection_engine.dart';
 import '../core/severity_engine.dart';
 import '../services/voice_alert_service.dart';
 import '../services/plus_code_service.dart';
 import '../services/live_tracking_service.dart';
+import '../services/socket_service.dart';
 
 enum EmergencyState { idle, countdown, alerting, completed, cancelled }
 
@@ -17,7 +17,7 @@ class EmergencyService {
   final CountdownManager _countdownManager;
   final LocationService _locationService;
   final SMSService _smsService;
-  final FirestoreService _firestoreService;
+  final SocketService _socketService;
 
   final List<String> emergencyContacts;
 
@@ -41,11 +41,11 @@ class EmergencyService {
     CountdownManager? countdownManager,
     LocationService? locationService,
     SMSService? smsService,
-    FirestoreService? firestoreService,
+    SocketService? socketService,
   })  : _countdownManager = countdownManager ?? CountdownManager(),
         _locationService = locationService ?? LocationService(),
         _smsService = smsService ?? SMSService(),
-        _firestoreService = firestoreService ?? FirestoreService();
+        _socketService = socketService ?? SocketService();
 
   /// Starts listening to the DetectionEngine streams for accident trigger
   void listen() {
@@ -116,25 +116,27 @@ class EmergencyService {
     // Compute Plus Code
     final plusCode = PlusCodeService.encode(lat, lng);
 
-    // Phase 3: Dispatch SMS and Firestore in parallel with error isolation.
-    // Each operation is wrapped individually so one failure doesn't block the other.
+    // Phase 3: Alert the command centre (socket) and emergency contacts (SMS)
+    // in parallel with error isolation. The socket emit is the primary,
+    // always-available path: it works with or without Firebase configured
+    // on the phone, queues while offline, and returns the authoritative
+    // incident id for live tracking.
     final results = await Future.wait([
       _safeSendSMS(lat, lng, confidence),
-      _safeStoreIncident(lat, lng, confidence, severityResult, plusCode),
+      _safeCreateIncidentViaSocket(lat, lng, confidence, severityResult, plusCode),
     ]);
 
     bool smsOk = results[0];
-    bool firestoreOk = results[1];
+    bool incidentOk = results[1];
 
-    // Start live tracking if incident was stored
-    if (firestoreOk) {
+    if (incidentOk) {
       await VoiceAlertService().announceHelpDispatched();
     }
 
-    if (smsOk || firestoreOk) {
-      print('[Emergency] Alert triggered (SMS: $smsOk, Firestore: $firestoreOk)');
+    if (smsOk || incidentOk) {
+      print('[Emergency] Alert triggered (SMS: $smsOk, CommandCentre: $incidentOk)');
     } else {
-      print('[Error][Emergency] Both SMS and Firestore failed');
+      print('[Error][Emergency] Both SMS and command-centre dispatch failed');
     }
 
     // Phase 4: Completed
@@ -164,24 +166,42 @@ class EmergencyService {
     }
   }
 
-  Future<bool> _safeStoreIncident(
-      double lat, double lng, double confidence,
-      SeverityResult severityResult, String plusCode) async {
+  /// Creates the incident on the command centre over Socket.IO (primary
+  /// path) and starts live location tracking with the authoritative id
+  /// returned by the backend ACK. Never throws - returns false on failure.
+  Future<bool> _safeCreateIncidentViaSocket(double lat, double lng,
+      double confidence, SeverityResult severityResult, String plusCode) async {
     try {
-      final docId = await _firestoreService.storeIncident(
-        latitude: lat,
-        longitude: lng,
-        confidenceScore: confidence,
-        severity: severityResult.label,
-        severityScore: severityResult.score,
-        plusCode: plusCode,
+      final completer = Completer<bool>();
+      _socketService.emitCreateIncidentWithAck({
+        'latitude': lat,
+        'longitude': lng,
+        'confidence': confidence,
+        'severity': severityResult.label,
+        'severityScore': severityResult.score,
+        'plusCode': plusCode,
+      }, (ack) {
+        if (ack is Map && ack['success'] == true) {
+          final id = ack['incidentId'];
+          final queued = ack['queued'] == true;
+          // Start live tracking with the backend-assigned id. When the
+          // event was only queued (offline), tracking starts after the
+          // reconnect flush - the ACK then carries the real id, which the
+          // backend's incident_created broadcast mirrors.
+          if (!queued && id is String && id.isNotEmpty) {
+            LiveTrackingService().startTracking(id);
+          }
+          completer.complete(true);
+        } else {
+          completer.complete(false);
+        }
+      });
+      return await completer.future.timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => false,
       );
-      if (docId != null) {
-        LiveTrackingService().startTracking(docId);
-      }
-      return docId != null;
     } catch (e) {
-      print('[Error][Emergency] Firestore store failed: $e');
+      print('[Error][Emergency] Socket incident creation failed: $e');
       return false;
     }
   }

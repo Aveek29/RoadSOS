@@ -112,18 +112,39 @@ def handle_disconnect():
 
 @socketio.on('create_incident')
 def handle_create_incident(data):
+    """Primary SOS ingestion path from the Flutter app.
+
+    Returns a structured ACK so the phone knows the authoritative incident id
+    and can start live location tracking with it. Works with or without
+    Firestore: with Firestore the doc is persisted (and the on_snapshot
+    listener broadcasts `incident_created`); without it the incident lives
+    in memory with a `sock_` id and is broadcast immediately. An SOS is
+    never dropped - only a malformed payload is rejected.
+    """
     logger.info(f"Socket event: create_incident received: {data}")
     from services.firestore_service import FirestoreService
     import uuid
     from datetime import datetime, timezone
-    
+
+    # Validate and sanitise the payload - a bad value must never crash the
+    # handler (this runs on the emergency path).
+    try:
+        data = data or {}
+        lat = max(-90.0, min(90.0, float(data.get('latitude', 0.0))))
+        lng = max(-180.0, min(180.0, float(data.get('longitude', 0.0))))
+        confidence = max(0.0, min(1.0, float(data.get('confidence', 0.5))))
+        severity = str(data.get('severity', 'LOW'))[:16]
+        severity_score = max(0.0, min(1.0, float(data.get('severityScore', 0.1))))
+        plus_code = str(data.get('plusCode', ''))[:64]
+    except (TypeError, ValueError) as e:
+        logger.warning(f"create_incident rejected - invalid payload: {e}")
+        return {
+            'success': False,
+            'error': 'INVALID_PAYLOAD',
+            'message': 'Incident payload contained invalid values.',
+        }
+
     fs = FirestoreService()
-    lat = float(data.get('latitude', 0.0))
-    lng = float(data.get('longitude', 0.0))
-    confidence = float(data.get('confidence', 0.5))
-    severity = data.get('severity', 'LOW')
-    severity_score = float(data.get('severityScore', 0.1))
-    plus_code = data.get('plusCode', '')
 
     now_iso = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
     incident_data = {
@@ -149,6 +170,8 @@ def handle_create_incident(data):
         try:
             doc_id = fs.add_document('incidents', incident_data)
             incident_data['id'] = doc_id
+            # The on_snapshot listener broadcasts `incident_created` for
+            # this doc - no direct emit here (avoids double broadcast).
             logger.info(f"Incident created via socket in Firestore: {doc_id}")
         except Exception as e:
             logger.error(f"Failed to add incident to Firestore: {e}")
@@ -158,16 +181,27 @@ def handle_create_incident(data):
         incident_data['id'] = f"sock_{uuid.uuid4().hex[:8]}"
         socketio.emit('incident_created', incident_data)
 
+    return {
+        'success': True,
+        'incidentId': incident_data['id'],
+        'source': 'firestore' if not incident_data['id'].startswith('sock_') else 'memory',
+    }
+
 
 @socketio.on('update_location')
 def handle_update_location(data):
     logger.info(f"Socket event: update_location received: {data}")
     from services.firestore_service import FirestoreService
+    try:
+        data = data or {}
+        incident_id = data.get('incidentId')
+        lat = max(-90.0, min(90.0, float(data.get('latitude', 0.0))))
+        lng = max(-180.0, min(180.0, float(data.get('longitude', 0.0))))
+    except (TypeError, ValueError) as e:
+        logger.warning(f"update_location ignored - invalid payload: {e}")
+        return {'success': False, 'error': 'INVALID_PAYLOAD'}
+
     fs = FirestoreService()
-    incident_id = data.get('incidentId')
-    lat = float(data.get('latitude', 0.0))
-    lng = float(data.get('longitude', 0.0))
-    
     if incident_id and fs.is_connected:
         try:
             fs.update_document('incidents', incident_id, {
