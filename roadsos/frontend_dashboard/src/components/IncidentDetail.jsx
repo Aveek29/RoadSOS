@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Shield, Navigation, Info, BellRing, CheckCircle, Trash2 } from 'lucide-react';
+import { Shield, Navigation, BellRing, CheckCircle, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import SeverityPredictionPanel from './SeverityPredictionPanel';
 

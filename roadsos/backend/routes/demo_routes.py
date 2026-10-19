@@ -124,9 +124,12 @@ def simulate_incident():
             doc_id = _fs.add_document('incidents', incident_data)
             incident_data['id'] = doc_id
         else:
-            # Offline demo: emit mock socket event with fake ID
+            # Offline demo: emit mock socket event with fake ID and keep the
+            # incident in the memory store so dispatch/status/analytics work.
             import uuid
+            from services.memory_store import MemoryStore
             incident_data['id'] = f"demo_{uuid.uuid4().hex[:8]}"
+            MemoryStore().put_incident(incident_data['id'], incident_data)
             socketio.emit('incident_created', incident_data)
 
         logger.info(
@@ -153,11 +156,17 @@ def simulate_incident():
 
 @demo_bp.route('/demo/clear', methods=['POST'])
 def clear_demo_incidents():
-    """Removes all demo incidents from Firestore (cleanup utility)."""
+    """Removes demo incidents (Firestore when connected, else memory store)."""
     logger.info("POST /demo/clear")
     try:
         if not _fs.is_connected:
-            return jsonify({'success': False, 'error': 'Firestore not connected'}), 503
+            # Offline mode: clear demo incidents from the memory store.
+            from services.memory_store import MemoryStore
+            removed_ids = MemoryStore().clear_demo_incidents()
+            for rid in removed_ids:
+                socketio.emit('incident_deleted', {'id': rid})
+            logger.info("Cleared %d demo incidents from memory", len(removed_ids))
+            return jsonify({'success': True, 'deleted': len(removed_ids)}), 200
 
         db = _fs.db
         docs = list(db.collection('incidents').where('isDemo', '==', True).stream())

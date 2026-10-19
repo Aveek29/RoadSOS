@@ -10,9 +10,12 @@ const client = axios.create({
 });
 
 export const api = {
-  getIncidents: async () => {
+  getIncidents: async (status) => {
     try {
-      const res = await client.get('/incidents');
+      // The backend hides RESOLVED by default; pass ?status=RESOLVED for history.
+      const res = await client.get('/incidents', {
+        params: status ? { status } : undefined,
+      });
       return res.data.data || [];
     } catch (err) {
       if (err.code === 'ECONNABORTED') {

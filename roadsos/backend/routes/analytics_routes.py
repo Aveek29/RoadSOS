@@ -26,12 +26,60 @@ def get_analytics():
     logger.info("GET /analytics")
     try:
         if not _fs.is_connected:
+            # Offline mode: aggregate from the memory store so the dashboard
+            # analytics bar reflects the real state of live demo/incident data.
+            from services.memory_store import MemoryStore
+            store = MemoryStore()
+            all_incidents = store.all_incidents()
+
+            active = [i for i in all_incidents if i.get('status') != 'RESOLVED']
+            resolved = [i for i in all_incidents if i.get('status') == 'RESOLVED']
+
+            today_start = datetime.now(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            resolved_today = 0
+            response_times = []
+            for data in resolved:
+                updated = data.get('updatedAt', data.get('timestamp', ''))
+                try:
+                    updated_dt = datetime.fromisoformat(str(updated).replace('Z', '+00:00'))
+                    if updated_dt.tzinfo is None:
+                        updated_dt = updated_dt.replace(tzinfo=timezone.utc)
+                    if updated_dt >= today_start:
+                        resolved_today += 1
+                except (ValueError, TypeError):
+                    pass
+
+                created = data.get('timestamp')
+                dispatched = data.get('dispatchedResources', [])
+                if created and dispatched:
+                    try:
+                        first_dispatch = datetime.fromisoformat(
+                            dispatched[0].get('dispatchedAt', '').replace('Z', '+00:00')
+                        )
+                        created_dt = datetime.fromisoformat(
+                            str(created).replace('Z', '+00:00')
+                        )
+                        delta = (first_dispatch - created_dt).total_seconds() / 60.0
+                        if 0 < delta < 120:
+                            response_times.append(delta)
+                    except (ValueError, TypeError):
+                        pass
+
+            avg_response = round(
+                sum(response_times) / len(response_times), 1
+            ) if response_times else 0.0
+            available_helpers = sum(
+                1 for h in store.all_helpers() if h.get('status') == 'ONLINE'
+            )
+
             return jsonify({
-                'activeIncidents': 0,
-                'resolvedToday': 0,
-                'criticalIncidents': 0,
-                'availableHelpers': 0,
-                'avgResponseTimeMins': 0,
+                'activeIncidents': len(active),
+                'resolvedToday': resolved_today,
+                'criticalIncidents': sum(1 for i in active if i.get('severity') == 'CRITICAL'),
+                'availableHelpers': available_helpers,
+                'avgResponseTimeMins': avg_response,
             }), 200
 
         db = _fs.db

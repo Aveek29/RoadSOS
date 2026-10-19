@@ -34,14 +34,18 @@ class DispatchService:
                     dispatched_at = datetime.fromisoformat(
                         dispatched_at_str.replace('Z', '+00:00')
                     )
-                    if (now - dispatched_at).total_seconds() < 60:
-                        raise ValueError(
-                            f"A {dispatch_type} was already dispatched "
-                            f"{int((now - dispatched_at).total_seconds())}s ago. "
-                            f"Wait before dispatching again."
-                        )
                 except (ValueError, TypeError):
-                    pass  # If timestamp parsing fails, allow the dispatch
+                    # Unparseable timestamp: allow the dispatch rather than
+                    # blocking responders. (Note: the duplicate rejection must
+                    # live outside this try, or it would be swallowed here.)
+                    continue
+                elapsed = (now - dispatched_at).total_seconds()
+                if elapsed < 60:
+                    raise ValueError(
+                        f"A {dispatch_type} was already dispatched "
+                        f"{int(elapsed)}s ago. "
+                        f"Wait before dispatching again."
+                    )
 
         # Prepare update payload
         updates = {
@@ -56,9 +60,7 @@ class DispatchService:
         dispatched_resources.append(dispatch_log)
         updates['dispatchedResources'] = dispatched_resources
 
-        self.incident_service.firestore.update_document(
-            'incidents', incident_id, updates
-        )
+        self.incident_service.update_fields(incident_id, updates)
 
         logger.info("%s dispatched to incident %s", dispatch_type.capitalize(), incident_id)
         return True

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Truck, Users, Activity, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Shield, Truck, Users } from 'lucide-react';
 
 const MOCK_POLICE = [
   { id: 'PATROL-104', type: 'Cruiser', status: 'RESPONDING', assignment: 'Active Incident NH48', contact: '044 2345 1044' },

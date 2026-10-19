@@ -25,8 +25,17 @@ const App = () => {
 
   const fetchData = useCallback(async () => {
     try {
-      const data = await api.getIncidents();
-      setIncidents(data);
+      // Active alerts + resolved history in one snapshot so the History screen
+      // survives a page reload (GET /incidents excludes RESOLVED by default).
+      const [active, resolved] = await Promise.all([
+        api.getIncidents(),
+        api.getIncidents('RESOLVED'),
+      ]);
+      const byId = new Map();
+      [...active, ...resolved].forEach((i) => {
+        if (i && i.id) byId.set(i.id, i);
+      });
+      setIncidents([...byId.values()]);
       setError(null);
       setBackendStatus('connected');
     } catch (e) {
@@ -147,6 +156,26 @@ const App = () => {
       );
       setSelectedIncident((prev) =>
         prev && prev.id === payload.incidentId ? { ...prev, severityPrediction: payload } : prev
+      );
+    });
+
+    // Live victim GPS: move the map marker as the phone reports new positions.
+    socketService.subscribeToLocationUpdated((payload) => {
+      if (!payload || !payload.incidentId) return;
+      const lat = payload.latitude ?? payload.victimLat;
+      const lng = payload.longitude ?? payload.victimLng;
+      if (typeof lat !== 'number' || typeof lng !== 'number') return;
+      setIncidents((prev) =>
+        prev.map((i) =>
+          i.id === payload.incidentId
+            ? { ...i, victimLat: lat, victimLng: lng, latitude: i.latitude ?? lat, longitude: i.longitude ?? lng }
+            : i
+        )
+      );
+      setSelectedIncident((prev) =>
+        prev && prev.id === payload.incidentId
+          ? { ...prev, victimLat: lat, victimLng: lng }
+          : prev
       );
     });
 
@@ -272,6 +301,7 @@ const App = () => {
           division="Chennai City Police" 
           customTitle={headerMeta.title}
           customSubtitle={headerMeta.subtitle}
+          backendStatus={backendStatus}
         />
 
         {/* KPI stats section */}

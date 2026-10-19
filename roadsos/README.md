@@ -446,20 +446,25 @@ roadsaftey_harrington_iitm/
 
 Full run book, environment variables and production notes: [`docs/deployment.md`](docs/deployment.md).
 
-### 18.4 Test everything (expected results in [`docs/testing.md`](docs/testing.md))
+### 18.4 Test everything (quick reference: [`docs/test-commands.md`](docs/test-commands.md) · expected results: [`docs/testing.md`](docs/testing.md))
 
 ```powershell
 cd backend      ; python -m pytest                                  # 60 passed
+python scripts\connectivity_test.py                                 # 14/14 (server running)
 cd ../frontend_dashboard
 npx eslint src --ext .js,.jsx                                       # 0 errors
-npm run build                                                       # exit 0
+$env:CI='true'; npm run build                                       # exit 0
 $env:CI='true'; npx react-scripts test --watchAll=false             # 8 passed
 cd ../app
-flutter analyze --no-pub                                            # 0 errors
-flutter test                                                        # 7 passed, 5 skipped
-# with the backend running — real HTTP against the real model:
-flutter test test/live_backend_e2e_test.dart --dart-define=ROADSOS_LIVE_E2E=true
+flutter analyze                                                     # 0 errors
+flutter test                                                        # 11 passed, 8 skipped
+# with the backend running — real HTTP + real duplex socket:
+flutter test --dart-define=ROADSOS_LIVE_E2E=true `
+             --dart-define=ROADSOS_BACKEND_URL=http://127.0.0.1:5000  # 19 passed
 ```
+
+`docs/test-commands.md` lists every route and socket event with its purpose and a
+copy-paste command, plus how to start each layer for a live demo.
 
 ### 📚 Documentation index
 
@@ -469,6 +474,7 @@ flutter test test/live_backend_e2e_test.dart --dart-define=ROADSOS_LIVE_E2E=true
 | [`docs/architecture.md`](docs/architecture.md) | How the ML module, routes, dashboard and app fit together |
 | [`docs/ml-model.md`](docs/ml-model.md) | Model provenance, feature contract, limitations |
 | [`docs/api.md`](docs/api.md) | REST + socket contract, error codes, examples |
+| [`docs/test-commands.md`](docs/test-commands.md) | Copy-paste test commands + purpose of every route/socket event |
 | [`docs/testing.md`](docs/testing.md) | PASS/FAIL/BLOCKED/NOT RUN report with evidence |
 | [`docs/security.md`](docs/security.md) | Audit findings, fixes, production checklist |
 | [`docs/deployment.md`](docs/deployment.md) | Step-by-step run book |

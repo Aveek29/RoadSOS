@@ -2,6 +2,7 @@ import logging
 import math
 from datetime import datetime, timezone
 from services.firestore_service import FirestoreService
+from services.memory_store import MemoryStore
 
 logger = logging.getLogger('RoadSoS.Helper')
 
@@ -92,7 +93,6 @@ class HelperService:
 
     def register_helper(self, uid: str, name: str, phone: str, fcm_token: str = None) -> dict:
         """Registers a volunteer or updates their metadata profile."""
-        self.firestore._ensure_db()
         helper_data = {
             'uid': uid,
             'name': name,
@@ -104,13 +104,19 @@ class HelperService:
         }
         if fcm_token:
             helper_data['fcmToken'] = fcm_token
+
+        if not self.firestore.is_connected:
+            MemoryStore().put_helper(uid, helper_data)
+            logger.info("Registered helper %s (%s) in memory", name, uid)
+            return {'success': True, 'message': 'Helper registered successfully'}
+
+        self.firestore._ensure_db()
         self.firestore.db.collection('helpers').document(uid).set(helper_data, merge=True)
         logger.info("Registered helper %s (%s)", name, uid)
         return {'success': True, 'message': 'Helper registered successfully'}
 
     def update_presence(self, uid: str, lat: float, lng: float, status: str, fcm_token: str = None) -> dict:
         """Updates volunteer location, presence status, and computes active geohash."""
-        self.firestore._ensure_db()
         geohash_val = encode_geohash(lat, lng, precision=9)
         updates = {
             'latitude': round(lat, 6),
@@ -121,6 +127,19 @@ class HelperService:
         }
         if fcm_token:
             updates['fcmToken'] = fcm_token
+
+        if not self.firestore.is_connected:
+            store = MemoryStore()
+            if store.get_helper(uid) is None:
+                # Auto-register unknown helpers so the offline demo flow is smooth.
+                store.put_helper(uid, {'uid': uid, 'name': f'Volunteer {uid[:4]}',
+                                       'phone': '', 'reputationScore': 5.0,
+                                       'activeMissionId': None})
+            store.update_helper(uid, updates)
+            logger.info("Updated helper presence in memory for %s: status=%s", uid, status)
+            return {'success': True, 'geohash': geohash_val}
+
+        self.firestore._ensure_db()
         self.firestore.db.collection('helpers').document(uid).update(updates)
         logger.info("Updated helper presence for %s: status=%s, geohash=%s", uid, status, geohash_val)
         return {'success': True, 'geohash': geohash_val}
@@ -130,6 +149,23 @@ class HelperService:
         Retrieves nearest online, available volunteers within a given radius.
         Uses prefix queries on geohashes for scalable database performance.
         """
+        if not self.firestore.is_connected:
+            # Offline mode: linear scan over the in-memory helper registry.
+            nearby = []
+            for data in MemoryStore().all_helpers():
+                if data.get('status') != 'ONLINE' or data.get('activeMissionId'):
+                    continue
+                h_lat = data.get('latitude')
+                h_lng = data.get('longitude')
+                if h_lat is None or h_lng is None:
+                    continue
+                distance = calculate_distance_meters(lat, lng, h_lat, h_lng)
+                if distance <= radius_meters:
+                    data['distanceMeters'] = round(distance, 1)
+                    nearby.append(data)
+            nearby.sort(key=lambda x: x['distanceMeters'])
+            return nearby
+
         self.firestore._ensure_db()
         # Choose prefix precision: 6 chars for tight radius, 5 chars for large radius
         precision = 6 if radius_meters <= 1500.0 else 5
@@ -175,6 +211,9 @@ class HelperService:
         """
         Atomically assigns a helper, sets status to BUSY, and spawns an active mission document.
         """
+        if not self.firestore.is_connected:
+            return self._accept_incident_offline(incident_id, helper_uid, distance_meters)
+
         self.firestore._ensure_db()
         
         # 1. Fetch helper and assert availability
@@ -186,13 +225,6 @@ class HelperService:
         else:
             helper_data = helper_doc.to_dict()
 
-        if helper_data.get('status') == 'BUSY':
-            return {
-                'success': False,
-                'message': 'You are currently assigned to another active mission',
-                'slotsFilled': 0
-            }
-
         incident = self._get_incident(incident_id)
         if not incident:
             raise ValueError(f"Incident '{incident_id}' not found")
@@ -202,12 +234,21 @@ class HelperService:
 
         accepted_helpers = incident.get('acceptedHelpers', [])
 
-        # Prevent duplicate assignment
+        # Prevent duplicate assignment (checked before the BUSY guard: the
+        # helper may be BUSY *because of this very incident*, and the
+        # duplicate message is the more specific and accurate one).
         if any(h.get('uid') == helper_uid for h in accepted_helpers):
             return {
                 'success': False,
                 'message': 'You have already accepted this incident',
                 'slotsFilled': len(accepted_helpers),
+            }
+
+        if helper_data.get('status') == 'BUSY':
+            return {
+                'success': False,
+                'message': 'You are currently assigned to another active mission',
+                'slotsFilled': 0
             }
 
         # Check capacity
@@ -270,11 +311,99 @@ class HelperService:
             'missionId': mission_id
         }
 
+    def _accept_incident_offline(self, incident_id: str, helper_uid: str,
+                                 distance_meters: float) -> dict:
+        """Offline mirror of accept_incident operating on the memory store."""
+        store = MemoryStore()
+        helper_data = store.get_helper(helper_uid)
+        if helper_data is None:
+            # Auto-register (same smooth demo flow as the Firestore path).
+            helper_data = {'uid': helper_uid, 'name': f'Volunteer {helper_uid[:4]}',
+                           'phone': '', 'reputationScore': 5.0, 'activeMissionId': None}
+            store.put_helper(helper_uid, helper_data)
+
+        incident = store.get_incident(incident_id)
+        if not incident:
+            raise ValueError(f"Incident '{incident_id}' not found")
+
+        if incident.get('status') == 'RESOLVED':
+            raise ValueError("Cannot respond to a RESOLVED incident")
+
+        accepted_helpers = incident.get('acceptedHelpers', [])
+
+        # Duplicate check before the BUSY guard (see accept_incident).
+        if any(h.get('uid') == helper_uid for h in accepted_helpers):
+            return {
+                'success': False,
+                'message': 'You have already accepted this incident',
+                'slotsFilled': len(accepted_helpers),
+            }
+
+        if helper_data.get('status') == 'BUSY':
+            return {
+                'success': False,
+                'message': 'You are currently assigned to another active mission',
+                'slotsFilled': 0
+            }
+
+        if len(accepted_helpers) >= MAX_RESPONDERS:
+            return {
+                'success': False,
+                'message': f'All {MAX_RESPONDERS} responder slots are full',
+                'slotsFilled': len(accepted_helpers),
+            }
+
+        mission_id = f"mission_{incident_id}_{helper_uid}"
+        now_str = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        helper_name = helper_data.get('name', 'Volunteer')
+
+        store.put_mission(mission_id, {
+            'id': mission_id,
+            'incidentId': incident_id,
+            'helperId': helper_uid,
+            'helperName': helper_name,
+            'helperPhone': helper_data.get('phone', ''),
+            'status': 'ASSIGNED',
+            'assignedAt': now_str,
+            'updatedAt': now_str,
+        })
+        store.update_helper(helper_uid, {'status': 'BUSY', 'activeMissionId': mission_id,
+                                         'updatedAt': now_str})
+
+        accepted_helpers.append({
+            'uid': helper_uid,
+            'name': helper_name,
+            'phone': helper_data.get('phone', ''),
+            'acceptedAt': now_str,
+            'distanceMeters': round(distance_meters, 1),
+        })
+        slots_filled = len(accepted_helpers)
+        store.update_incident(incident_id, {
+            'acceptedHelpers': accepted_helpers,
+            'helperSlots': slots_filled,
+            'helperRequestOpen': slots_filled < MAX_RESPONDERS,
+        })
+
+        logger.info(
+            "Helper %s accepted incident %s offline (slot %d/%d, mission=%s)",
+            helper_uid, incident_id, slots_filled, MAX_RESPONDERS, mission_id
+        )
+        return {
+            'success': True,
+            'message': 'You have been assigned. Drive safely.',
+            'slotsFilled': slots_filled,
+            'missionId': mission_id,
+            'helperName': helper_name,
+        }
+
     def update_mission_status(self, mission_id: str, status: str) -> dict:
         """
         Updates active mission state (ASSIGNED, EN_ROUTE, ON_SCENE, COMPLETED, ABANDONED).
         Updates helper availability and modifies reputation score dynamically.
         """
+        if not self.firestore.is_connected:
+            return self._update_mission_offline(mission_id, status)
+
         self.firestore._ensure_db()
         mission_doc = self.firestore.db.collection('missions').document(mission_id).get()
         if not mission_doc.exists:
@@ -326,10 +455,62 @@ class HelperService:
         logger.info("Mission %s updated to %s. Helper %s reputation: %.2f", mission_id, status, helper_uid, rep_score)
         return {'success': True, 'message': msg, 'status': status, 'reputationScore': round(rep_score, 2)}
 
+    def _update_mission_offline(self, mission_id: str, status: str) -> dict:
+        """Offline mirror of update_mission_status operating on the memory store."""
+        store = MemoryStore()
+        mission = store.get_mission(mission_id)
+        if not mission:
+            raise ValueError(f"Mission '{mission_id}' not found")
+
+        helper_uid = mission['helperId']
+        incident_id = mission['incidentId']
+        status = status.upper()
+        now_str = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        store.update_mission(mission_id, {'status': status, 'updatedAt': now_str})
+
+        helper = store.get_helper(helper_uid) or {'reputationScore': 5.0}
+        rep_score = helper.get('reputationScore', 5.0)
+
+        if status in ('COMPLETED', 'ABANDONED'):
+            if status == 'COMPLETED':
+                rep_score = min(5.0, rep_score + 0.1)
+                msg = "Mission completed successfully. Reputation score increased."
+            else:
+                rep_score = max(0.0, rep_score - 0.2)
+                msg = "Mission abandoned. Reputation score decreased."
+
+            store.update_helper(helper_uid, {
+                'status': 'ONLINE',
+                'activeMissionId': None,
+                'reputationScore': round(rep_score, 2),
+                'updatedAt': now_str,
+            })
+            if status == 'ABANDONED':
+                self._remove_helper_from_incident(incident_id, helper_uid)
+        else:
+            msg = f"Mission status updated to {status}."
+
+        logger.info("Mission %s updated to %s offline. Helper %s reputation: %.2f",
+                    mission_id, status, helper_uid, rep_score)
+        return {'success': True, 'message': msg, 'status': status,
+                'reputationScore': round(rep_score, 2)}
+
     def decline_incident(self, incident_id: str, helper_uid: str) -> dict:
         """Decrements helper reputation slightly on incident rejection (discourages inactivity)."""
-        self.firestore._ensure_db()
         logger.info("Helper %s declined incident %s", helper_uid, incident_id)
+
+        if not self.firestore.is_connected:
+            store = MemoryStore()
+            helper = store.get_helper(helper_uid)
+            if helper:
+                new_rep = max(0.0, helper.get('reputationScore', 5.0) - 0.05)
+                store.update_helper(helper_uid, {
+                    'reputationScore': round(new_rep, 2),
+                    'updatedAt': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+                })
+            return {'success': True, 'message': 'Response recorded'}
+
+        self.firestore._ensure_db()
         
         # Penalize reputation score slightly for declining (e.g., -0.05)
         helper_ref = self.firestore.db.collection('helpers').document(helper_uid)
@@ -357,11 +538,14 @@ class HelperService:
             'helperSlots': slots_filled,
             'helperRequestOpen': slots_filled < MAX_RESPONDERS,
         }
+        if not self.firestore.is_connected:
+            MemoryStore().update_incident(incident_id, updates)
+            return
         self.firestore.update_document('incidents', incident_id, updates)
 
     def _get_incident(self, incident_id: str):
         if not self.firestore.is_connected:
-            return None
+            return MemoryStore().get_incident(incident_id)
         doc = self.firestore.get_document('incidents', incident_id)
         if doc.exists:
             data = doc.to_dict()

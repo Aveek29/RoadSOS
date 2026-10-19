@@ -123,6 +123,7 @@ def handle_create_incident(data):
     """
     logger.info(f"Socket event: create_incident received: {data}")
     from services.firestore_service import FirestoreService
+    from services.memory_store import MemoryStore
     import uuid
     from datetime import datetime, timezone
 
@@ -176,9 +177,13 @@ def handle_create_incident(data):
         except Exception as e:
             logger.error(f"Failed to add incident to Firestore: {e}")
             incident_data['id'] = f"sock_{uuid.uuid4().hex[:8]}"
+            MemoryStore().put_incident(incident_data['id'], incident_data)
             socketio.emit('incident_created', incident_data)
     else:
         incident_data['id'] = f"sock_{uuid.uuid4().hex[:8]}"
+        # Persist in the offline store so dispatch/status/tracking on this
+        # incident resolve correctly even without Firestore.
+        MemoryStore().put_incident(incident_data['id'], incident_data)
         socketio.emit('incident_created', incident_data)
 
     return {
@@ -211,6 +216,32 @@ def handle_update_location(data):
             })
         except Exception as e:
             logger.error(f"Failed to update location: {e}")
+    elif incident_id:
+        # Offline mode: keep live victim position in the memory store so the
+        # dashboard map and dispatch keep tracking the phone.
+        from services.memory_store import MemoryStore
+        MemoryStore().update_incident(incident_id, {
+            'victimLat': lat,
+            'victimLng': lng,
+            'trackingActive': True
+        })
+
+    # Push the new position to every connected dashboard in real time so the
+    # tactical map marker moves as the phone reports GPS. Best-effort: a failed
+    # broadcast must never break the tracking write.
+    if incident_id:
+        try:
+            socketio.emit('location_updated', {
+                'incidentId': incident_id,
+                'latitude': lat,
+                'longitude': lng,
+                'victimLat': lat,
+                'victimLng': lng,
+            })
+        except Exception as e:  # pragma: no cover
+            logger.warning(f"Failed to emit location_updated: {e}")
+
+    return {'success': True}
 
 
 @socketio.on('dispatch_resource')
@@ -294,12 +325,15 @@ def handle_stop_tracking(data):
     from services.firestore_service import FirestoreService
     fs = FirestoreService()
     incident_id = data.get('incidentId')
-    
+
     if incident_id and fs.is_connected:
         try:
             fs.update_document('incidents', incident_id, {'trackingActive': False})
         except Exception as e:
             logger.error(f"Failed to stop tracking: {e}")
+    elif incident_id:
+        from services.memory_store import MemoryStore
+        MemoryStore().update_incident(incident_id, {'trackingActive': False})
 
 
 def _allowed_origins():

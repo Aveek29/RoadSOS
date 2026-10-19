@@ -74,11 +74,15 @@ check("GET /analytics 200", st == 200, f"status={st}")
 try:
     import socketio
     sio = socketio.Client(reconnection=False)
-    got = {"created": []}
+    got = {"created": [], "location": []}
 
     @sio.on("incident_created")
     def on_created(data):
         got["created"].append(data)
+
+    @sio.on("location_updated")
+    def on_location(data):
+        got["location"].append(data)
 
     t0 = time.time()
     sio.connect(BASE, transports=["polling", "websocket"], wait_timeout=10)
@@ -101,6 +105,20 @@ try:
     sio.emit("helper_respond", {"incidentId": "nope", "helperUid": "h1", "accepted": False, "distanceMeters": 10.0}, callback=_ack)
     time.sleep(1.0)
     check("helper_respond ack received", bool(ack), f"ack={json.dumps(ack)[:120]}")
+
+    # Live GPS: the phone emits update_location, the dashboard listens for
+    # location_updated. Both directions must work for the map marker to move.
+    incident_id = got["created"][0].get("id") if got["created"] else None
+    if incident_id:
+        sio.emit("update_location", {
+            "incidentId": incident_id, "latitude": 13.091, "longitude": 80.281,
+        })
+        deadline = time.time() + 6
+        while time.time() < deadline and not got["location"]:
+            time.sleep(0.2)
+        check("update_location -> location_updated echoed",
+              len(got["location"]) > 0,
+              f"received={len(got['location'])} id={incident_id}")
 
     sio.disconnect()
 except Exception as e:

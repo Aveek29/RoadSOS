@@ -50,8 +50,9 @@ dependencies:
   # URL launcher for SMS via sms: URI scheme (cross-platform)
   url_launcher: ^6.3.1
 
-  # Real-time WebSocket communications
-  socket_io_client: ^2.0.3
+  # Real-time WebSocket communications (3.x fixes Engine.IO v4 polling;
+  # 2.0.3 hung on polling and only connected websocket-only)
+  socket_io_client: ^3.1.6
 
   # Text-to-speech for voice alerts
   flutter_tts: ^4.2.2

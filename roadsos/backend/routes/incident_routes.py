@@ -94,8 +94,10 @@ def stop_tracking(incident_id):
     try:
         if not incident_id or len(incident_id) > 128:
             return jsonify({"success": False, "error": "Invalid incident ID"}), 400
-        _fs.update_document('incidents', incident_id, {'trackingActive': False})
+        incident_service.update_fields(incident_id, {'trackingActive': False})
         return jsonify({"success": True, "message": "Tracking stopped"}), 200
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
     except ConnectionError as e:
         return jsonify({"success": False, "error": str(e)}), 503
     except Exception as e:
@@ -119,12 +121,14 @@ def update_location(incident_id):
         lat = float(data['latitude'])
         lng = float(data['longitude'])
 
-        _fs.update_document('incidents', incident_id, {
+        incident_service.update_fields(incident_id, {
             'victimLat': lat,
             'victimLng': lng,
             'trackingActive': True,
         })
         return jsonify({"success": True}), 200
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
     except ConnectionError as e:
         return jsonify({"success": False, "error": str(e)}), 503
     except Exception as e:

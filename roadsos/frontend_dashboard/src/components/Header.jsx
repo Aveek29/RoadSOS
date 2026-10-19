@@ -1,7 +1,16 @@
 import React from 'react';
 import { Filter, Calendar, Bell, ChevronDown } from 'lucide-react';
 
-const Header = ({ notificationCount = 3, inspectorName = 'Inspector Arjun', division = 'Chennai City Police', customTitle, customSubtitle }) => {
+const Header = ({ notificationCount = 3, inspectorName = 'Inspector Arjun', division = 'Chennai City Police', customTitle, customSubtitle, backendStatus = 'checking' }) => {
+  const statusLabel =
+    backendStatus === 'connected' ? 'Backend Live'
+    : backendStatus === 'disconnected' ? 'Backend Offline'
+    : 'Connecting…';
+  const statusColor =
+    backendStatus === 'connected' ? '#22c55e'
+    : backendStatus === 'disconnected' ? '#ef4444'
+    : '#f59e0b';
+
   return (
     <header className="header-section">
       <div className="header-title-group">
@@ -10,6 +19,32 @@ const Header = ({ notificationCount = 3, inspectorName = 'Inspector Arjun', divi
       </div>
 
       <div className="header-actions">
+        {/* Live connection indicator (Socket.IO -> backend) */}
+        <span
+          title={statusLabel}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '12px',
+            color: 'var(--text-secondary)',
+            padding: '4px 10px',
+            borderRadius: '999px',
+            border: '1px solid var(--border-color, rgba(148,163,184,0.25))',
+          }}
+        >
+          <span
+            style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: statusColor,
+              boxShadow: `0 0 6px ${statusColor}`,
+            }}
+          />
+          {statusLabel}
+        </span>
+
         {/* Status Filter */}
         <button className="btn-filter">
           <Filter size={15} />

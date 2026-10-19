@@ -7,12 +7,17 @@ import '../config/app_config.dart';
 ///
 /// Hardened for reliability (an SOS channel must not silently drop data):
 ///   * Backend address comes from [AppConfig] (single source of truth).
-///   * Transports `polling` then upgrade to `websocket` — far more reliable
-///     across emulators/LANs/flaky mobile networks than websocket-only.
+///   * Transports: native builds connect over websocket (the only transport
+///     socket_io_client implements on dart:io); web keeps polling as a
+///     fallback for restrictive networks.
 ///   * Automatic reconnection with backoff.
 ///   * Fire-and-forget events emitted while disconnected are QUEUED (bounded)
 ///     and flushed on reconnect, so a `create_incident` SOS is not lost.
 ///   * Exposes a [statusStream] so the UI can reflect connectivity.
+///   * Listens to backend-pushed events (incident_created/updated/deleted,
+///     helper_accepted, mission_updated, severity_prediction) and exposes
+///     them as streams via [serverEvents] / [onEvent] — the app is a full
+///     duplex Socket.IO client, not emit-only.
 class SocketService {
   IO.Socket? socket;
 
@@ -28,22 +33,52 @@ class SocketService {
   /// Emits `true` on connect and `false` on disconnect/error.
   Stream<bool> get statusStream => _statusController.stream;
 
+  /// Server-push events the backend broadcasts to every connected client.
+  /// Each emission is `{'event': <name>, 'data': <payload map>}`.
+  final StreamController<Map<String, dynamic>> _eventsController =
+      StreamController<Map<String, dynamic>>.broadcast();
+
+  /// All backend-pushed events (multiplexed). Prefer [onEvent] for a single
+  /// event type.
+  Stream<Map<String, dynamic>> get serverEvents => _eventsController.stream;
+
+  /// Typed stream for one event name, e.g. `onEvent('incident_created')`.
+  Stream<Map<String, dynamic>> onEvent(String event) => _eventsController.stream
+      .where((e) => e['event'] == event)
+      .map((e) => e['data'] as Map<String, dynamic>);
+
+  /// Events the backend emits that this client subscribes to.
+  static const List<String> _subscribedEvents = [
+    'incident_created',
+    'incident_updated',
+    'incident_deleted',
+    'helper_accepted',
+    'mission_updated',
+    'severity_prediction',
+    'location_updated',
+  ];
+
   bool get isConnected => socket?.connected ?? false;
 
   static final SocketService _instance = SocketService._internal();
   factory SocketService() => _instance;
   SocketService._internal();
 
-  void connect() {
+  void connect({String? serverUrl}) {
     if (socket != null && socket!.connected) return;
 
-    debugPrint('[Socket] Attempting to connect to $_serverUrl...');
+    final url = serverUrl ?? _serverUrl;
+    debugPrint('[Socket] Attempting to connect to $url...');
 
     socket = IO.io(
-      _serverUrl,
+      url,
       IO.OptionBuilder()
-          // Polling handshake first, then upgrade to websocket.
-          .setTransports(['polling', 'websocket'])
+          // socket_io_client on native (dart:io) ONLY implements websocket;
+          // requesting `polling` first creates a WebSocket transport with a
+          // stale `transport=polling` query, which the server answers with
+          // HTTP 200 instead of 101 (connection never establishes).
+          // Web keeps long-polling as a fallback for restrictive networks.
+          .setTransports(kIsWeb ? ['polling', 'websocket'] : ['websocket'])
           .enableAutoConnect()
           .enableReconnection()
           // Keep retrying: an emergency app should survive long network drops.
@@ -55,7 +90,7 @@ class SocketService {
     );
 
     socket!.onConnect((_) {
-      debugPrint('[Socket] Connected to RoadSOS backend at $_serverUrl');
+      debugPrint('[Socket] Connected to RoadSOS backend at $url');
       _statusController.add(true);
       _flushOutbox();
     });
@@ -73,6 +108,34 @@ class SocketService {
     socket!.onError((error) {
       debugPrint('[Socket] Socket error: $error');
     });
+
+    _registerServerListeners(socket!);
+  }
+
+  /// Subscribes to every backend-pushed event so the UI can react in real
+  /// time (live incident feed, helper-assignment alerts, severity updates).
+  /// Called once per socket instance; socket_io_client keeps these handlers
+  /// across reconnects of the same instance.
+  void _registerServerListeners(IO.Socket s) {
+    for (final name in _subscribedEvents) {
+      s.on(name, (payload) {
+        final data = _normalizePayload(payload);
+        debugPrint('[Socket] Received server event: $name');
+        if (!_eventsController.isClosed) {
+          _eventsController.add({'event': name, 'data': data});
+        }
+      });
+    }
+  }
+
+  /// Socket payloads arrive as `Map<dynamic, dynamic>`; normalizes to
+  /// `Map<String, dynamic>` so downstream code can use it directly.
+  static Map<String, dynamic> _normalizePayload(dynamic payload) {
+    if (payload is Map<String, dynamic>) return payload;
+    if (payload is Map) {
+      return payload.map((key, value) => MapEntry(key.toString(), value));
+    }
+    return {'value': payload};
   }
 
   /// Sends any queued events once a connection is available.

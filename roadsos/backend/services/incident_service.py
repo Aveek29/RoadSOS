@@ -1,5 +1,6 @@
 import logging
 from services.firestore_service import FirestoreService
+from services.memory_store import MemoryStore
 
 logger = logging.getLogger('RoadSoS.Incident')
 
@@ -22,7 +23,10 @@ class IncidentService:
         incidents = []
 
         if not self.firestore.is_connected:
-            logger.warning("Firestore not connected, returning empty list")
+            # Offline mode: serve from the in-memory store so the full
+            # command-centre flow keeps working without Firestore.
+            incidents = MemoryStore().list_incidents(status_filter, limit)
+            logger.info("Firestore not connected - served %d incidents from memory", len(incidents))
             return incidents
 
         query = self.firestore.get_collection(self.collection)
@@ -51,7 +55,7 @@ class IncidentService:
 
     def get_incident(self, incident_id):
         if not self.firestore.is_connected:
-            return None
+            return MemoryStore().get_incident(incident_id)
 
         doc = self.firestore.get_document(self.collection, incident_id)
         if doc.exists:
@@ -63,6 +67,18 @@ class IncidentService:
                 data['updatedAt'] = str(data['updatedAt'])
             return data
         return None
+
+    def update_fields(self, incident_id, updates):
+        """Persists field updates for an incident (dispatch, tracking, ...).
+
+        Writes to Firestore when connected, otherwise to the in-memory store.
+        Raises ValueError when the incident is unknown offline.
+        """
+        if not self.firestore.is_connected:
+            if not MemoryStore().update_incident(incident_id, updates):
+                raise ValueError(f"Incident '{incident_id}' not found")
+            return
+        self.firestore.update_document(self.collection, incident_id, updates)
 
     def update_status(self, incident_id, new_status):
         valid_statuses = list(VALID_TRANSITIONS.keys())
@@ -83,7 +99,5 @@ class IncidentService:
                 f"Allowed transitions: {allowed or 'none (terminal state)'}"
             )
 
-        self.firestore.update_document(self.collection, incident_id, {
-            'status': new_status
-        })
+        self.update_fields(incident_id, {'status': new_status})
         logger.info("Status updated: %s → %s (%s)", incident_id, new_status, current_status)

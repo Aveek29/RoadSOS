@@ -24,10 +24,17 @@ Base URL: `http://<host>:5000` (Flask + Socket.IO). All REST payloads are JSON.
 | GET | `/analytics` | Dashboard statistics |
 | POST | `/demo/simulate`, `/demo/clear` | Demo data generator (for presentations) |
 
-Socket.IO events: `connect`, `disconnect`, `create_incident`, `update_location`,
-`dispatch_resource`, `update_status`, `helper_respond`, `stop_tracking` (client→server);
-`incident_created`, `incident_updated`, `incident_deleted`, `helper_accepted`,
-**`severity_prediction`** (server→client).
+Socket.IO events (duplex). Client→server: `connect`, `disconnect`,
+`create_incident` (ACKs `{success, incidentId}`), `update_location`,
+`dispatch_resource`, `update_status`, `helper_respond`, `stop_tracking`.
+Server→client: `incident_created`, `incident_updated`, `incident_deleted`,
+`helper_accepted`, `mission_updated`, `location_updated`,
+**`severity_prediction`**.
+
+The Flutter client subscribes to all seven server→client events
+(`SocketService.onEvent(name)` / `serverEvents`). On Android/iOS it connects
+over **websocket only** — `socket_io_client` does not implement polling on
+`dart:io`; web builds keep polling as a fallback.
 
 ---
 

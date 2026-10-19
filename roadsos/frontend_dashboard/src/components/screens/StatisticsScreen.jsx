@@ -1,5 +1,5 @@
 import React from 'react';
-import { TrendingUp, Award, Zap, Hourglass } from 'lucide-react';
+import { TrendingUp, Zap, Hourglass } from 'lucide-react';
 
 const WEEKLY_DATA = [
   { day: 'Mon', count: 18, height: '65%' },

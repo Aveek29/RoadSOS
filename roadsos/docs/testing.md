@@ -133,3 +133,53 @@ flutter analyze --no-pub
 flutter test
 flutter test test/live_backend_e2e_test.dart --dart-define=ROADSOS_LIVE_E2E=true
 ```
+
+For a friendlier, layer-by-layer run book (start commands, purpose of every
+route/socket event, troubleshooting) use [`docs/test-commands.md`](test-commands.md).
+
+---
+
+## 9. Re-validation — 2026-10-19 (full-stack integration pass)
+
+Goal: prove the mobile app, backend, dashboard and ML model work **together**
+end-to-end, then finalise. Everything below was executed after the fixes in §10.
+
+| # | Command | Result |
+|---|---|---|
+| R1 | `python -m pytest tests -q` | **PASS — 60 passed** |
+| R2 | `python scripts\connectivity_test.py` | **PASS — 14/14** (added `update_location → location_updated` relay check) |
+| R3 | `deep_verify_test.py` (lifecycle/ML/volunteer/abuse) | **PASS — 30/30** |
+| R4 | `sos_ack_test.py` (SOS ACK contract) | **PASS — 6/6** |
+| R5 | `flutter analyze` | **PASS — 0 errors** |
+| R6 | `flutter test` | **PASS — 11 passed, 8 skipped** |
+| R7 | `flutter test --dart-define=ROADSOS_LIVE_E2E=true` | **PASS — 19/19** (live ML + live duplex socket) |
+| R8 | `npx eslint src --ext .js,.jsx` | **PASS — 0 errors, 0 warnings** |
+| R9 | `$env:CI='true'; npm run build` | **PASS — exit 0** |
+| R10 | `$env:CI='true'; npx react-scripts test --watchAll=false` | **PASS — 8/8** |
+
+New tests added this pass:
+
+* `app/test/detection_engine_test.dart` — synthetic accelerometer/gyroscope
+  samples drive the real `DetectionEngine` chain (impact + sustained rotation →
+  confidence ≥ 0.7 → `accidentDetected`), plus a negative single-spike case,
+  `reset()` re-arm, and the home-screen "Test SOS (Demo)" path.
+* `app/test/live_socket_e2e_test.dart` — the app's real `SocketService` connects
+  to the real backend, receives `incident_created` broadcasts and reports
+  connection state (`serverEvents` multiplexer + `statusStream`).
+
+## 10. Defects found and fixed during the 2026-10-19 pass
+
+| Defect | Symptom | Fix |
+|---|---|---|
+| **Mobile app socket never connected** | `socket_io_client` 2.0.3 hung on the polling handshake; on 3.1.6 native (`dart:io`) `Transports.newInstance` always returns a websocket transport but keeps `transport=polling` in the query, so the server answered HTTP 200 instead of 101. The SOS socket path silently never connected from the app. | Upgraded to `socket_io_client: ^3.1.6`; native now uses `setTransports(['websocket'])`, web keeps `['polling','websocket']`. Verified by R7 (real backend→app push received). |
+| **Duplicate dispatch silently swallowed** | `ValueError` for a duplicate dispatch was raised *inside* its own `try/except ValueError`, so a second dispatch within 60 s was accepted. | Restructured `dispatch_service.py` so the rejection is raised outside the parse `try`. Covered by R3 (`duplicate dispatch within 60s rejected`). |
+| **Duplicate helper accept message masked** | The BUSY guard ran before the "already accepted" check, so a second accept returned a generic BUSY error instead of the specific message (both Firestore and offline paths). | Reordered `helper_service.accept_incident` — "already accepted" first. Covered by R3. |
+| **`location_updated` never emitted** | The dashboard subscribed to `location_updated` but the backend never sent it, so the live map marker never moved. | `handle_update_location` now broadcasts `location_updated` after persisting (Firestore and memory). Covered by R2. Added to the Flutter `SocketService` subscription list. |
+| **Dashboard history empty after reload** | `GET /incidents` hides `RESOLVED` by default and the dashboard only fetched that, so `AlertHistoryScreen` had nothing real to show on load. | `api.getIncidents(status)` + `App.fetchData` now fetch active **and** resolved and merge. |
+| **CI build failed on 8 lint warnings** | `CI=true npm run build` treated pre-existing `no-unused-vars` warnings as errors. | Removed the unused imports; wired the previously-unused `backendStatus` into a live "Backend Live / Offline" indicator in the dashboard header. R9 now passes. |
+
+Operational note: during this pass a **stale backend process** (started before a
+fix) kept holding `:5000` while a newer one also bound it, so old code served
+requests and "fixes appeared not to work". Kill every `python` process and start
+exactly one backend before re-testing — recorded in §7 of `test-commands.md`.
+

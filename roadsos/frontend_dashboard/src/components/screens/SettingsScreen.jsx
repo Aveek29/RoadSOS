@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, Shield, Bell, Key, CheckCircle, Database } from 'lucide-react';
+import { Shield, Bell, Key, Database } from 'lucide-react';
 
 const SettingsRow = ({ label, desc, children }) => (
   <div className="settings-row">
