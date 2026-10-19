@@ -1,12 +1,34 @@
+import 'dart:async';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter/foundation.dart';
+import '../config/app_config.dart';
 
+/// Socket.IO client for the RoadSOS backend command centre.
+///
+/// Hardened for reliability (an SOS channel must not silently drop data):
+///   * Backend address comes from [AppConfig] (single source of truth).
+///   * Transports `polling` then upgrade to `websocket` — far more reliable
+///     across emulators/LANs/flaky mobile networks than websocket-only.
+///   * Automatic reconnection with backoff.
+///   * Fire-and-forget events emitted while disconnected are QUEUED (bounded)
+///     and flushed on reconnect, so a `create_incident` SOS is not lost.
+///   * Exposes a [statusStream] so the UI can reflect connectivity.
 class SocketService {
   IO.Socket? socket;
-  
-  // Note: 10.0.2.2 is the special loopback interface for Android Emulator 
-  // pointing to the host machine's localhost (127.0.0.1).
-  final String _serverUrl = 'http://10.0.2.2:5000'; 
+
+  final String _serverUrl = AppConfig.backendBaseUrl;
+
+  /// Outbound queue for events emitted before a connection exists.
+  final List<Map<String, dynamic>> _outbox = <Map<String, dynamic>>[];
+  static const int _maxOutbox = 32;
+
+  final StreamController<bool> _statusController =
+      StreamController<bool>.broadcast();
+
+  /// Emits `true` on connect and `false` on disconnect/error.
+  Stream<bool> get statusStream => _statusController.stream;
+
+  bool get isConnected => socket?.connected ?? false;
 
   static final SocketService _instance = SocketService._internal();
   factory SocketService() => _instance;
@@ -16,25 +38,51 @@ class SocketService {
     if (socket != null && socket!.connected) return;
 
     debugPrint('[Socket] Attempting to connect to $_serverUrl...');
-    
-    socket = IO.io(_serverUrl, IO.OptionBuilder()
-      .setTransports(['websocket'])
-      .enableAutoConnect()
-      .setReconnectionAttempts(5)
-      .setReconnectionDelay(2000)
-      .build());
+
+    socket = IO.io(
+      _serverUrl,
+      IO.OptionBuilder()
+          // Polling handshake first, then upgrade to websocket.
+          .setTransports(['polling', 'websocket'])
+          .enableAutoConnect()
+          .enableReconnection()
+          // Keep retrying: an emergency app should survive long network drops.
+          .setReconnectionAttempts(999999)
+          .setReconnectionDelay(1000)
+          .setReconnectionDelayMax(8000)
+          .setTimeout(10000)
+          .build(),
+    );
 
     socket!.onConnect((_) {
-      debugPrint('[Socket] Connected to RoadSOS Backend Command Center successfully.');
+      debugPrint('[Socket] Connected to RoadSOS backend at $_serverUrl');
+      _statusController.add(true);
+      _flushOutbox();
     });
 
     socket!.onDisconnect((_) {
-      debugPrint('[Socket] Disconnected from RoadSOS Backend Command Center.');
+      debugPrint('[Socket] Disconnected from RoadSOS backend.');
+      _statusController.add(false);
     });
 
     socket!.onConnectError((error) {
       debugPrint('[Socket] Connection error: $error');
+      _statusController.add(false);
     });
+
+    socket!.onError((error) {
+      debugPrint('[Socket] Socket error: $error');
+    });
+  }
+
+  /// Sends any queued events once a connection is available.
+  void _flushOutbox() {
+    if (_outbox.isEmpty || socket == null || !socket!.connected) return;
+    debugPrint('[Socket] Flushing ${_outbox.length} queued event(s).');
+    for (final item in _outbox) {
+      socket!.emit(item['event'], item['data']);
+    }
+    _outbox.clear();
   }
 
   void emit(String event, dynamic data) {
@@ -42,7 +90,14 @@ class SocketService {
       socket!.emit(event, data);
       debugPrint('[Socket] Emitted event: $event');
     } else {
-      debugPrint('[Socket][Warning] Cannot emit $event - socket not connected');
+      // Queue (bounded) so critical events aren't dropped, and kick a connect.
+      debugPrint('[Socket] Not connected - queueing "$event" and reconnecting.');
+      if (_outbox.length < _maxOutbox) {
+        _outbox.add({'event': event, 'data': data});
+      } else {
+        debugPrint('[Socket][Warning] Outbox full, dropping "$event".');
+      }
+      connect();
     }
   }
 
@@ -58,6 +113,9 @@ class SocketService {
     });
   }
 
+  /// Emits `helper_respond` and invokes [callback] with the server ack.
+  /// Acks cannot be reliably queued, so if we're offline the callback is
+  /// invoked immediately with a structured failure the UI can show.
   void emitHelperResponse(
     String incidentId,
     String helperUid,
@@ -76,13 +134,19 @@ class SocketService {
       });
       debugPrint('[Socket] Emitted helper_respond with ACK');
     } else {
-      callback({'success': false, 'message': 'Socket connection lost', 'success_status': false});
+      connect();
+      callback({
+        'success': false,
+        'message': 'Not connected to command centre - try again shortly.',
+      });
     }
   }
 
   void disconnect() {
     socket?.disconnect();
+    socket?.dispose();
     socket = null;
+    _outbox.clear();
     debugPrint('[Socket] Disconnected permanently.');
   }
 }

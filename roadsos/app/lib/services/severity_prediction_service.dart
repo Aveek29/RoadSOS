@@ -22,15 +22,12 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 
-/// Backend address. `10.0.2.2` is the Android emulator's alias for the host
-/// machine's localhost — same convention as `SocketService`.
+/// Backend address is resolved centrally by [AppConfig] (single source of
+/// truth, shared with `SocketService` and `LocationIndexService`).
 /// Override at build time with:
 /// `flutter run --dart-define=ROADSOS_BACKEND_URL=http://192.168.1.20:5000`
-const String kBackendBaseUrl = String.fromEnvironment(
-  'ROADSOS_BACKEND_URL',
-  defaultValue: 'http://10.0.2.2:5000',
-);
 
 /// The 14 raw features the model contract accepts (5 numeric + 9 categorical).
 /// Names match the backend schema exactly — they are not re-derived here.
@@ -224,7 +221,7 @@ class PredictionOutcome {
 class SeverityPredictionService {
   SeverityPredictionService({http.Client? client, String? baseUrl})
       : _client = client ?? http.Client(),
-        _baseUrl = baseUrl ?? kBackendBaseUrl;
+        _baseUrl = baseUrl ?? AppConfig.backendBaseUrl;
 
   final http.Client _client;
   final String _baseUrl;

@@ -45,5 +45,19 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>RoadSOS uses your location to send your exact crash-site coordinates to emergency responders and nearby volunteers.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>RoadSOS needs background location to keep tracking your position during an active emergency so responders can find you.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>RoadSOS reads the accelerometer and gyroscope to automatically detect a collision without any user interaction.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Local development backend runs over plain http:// (Flask on :5000).
+		     Replace with a domain-scoped exception (NSExceptionDomains) before
+		     shipping to production so only the known host allows cleartext. -->
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

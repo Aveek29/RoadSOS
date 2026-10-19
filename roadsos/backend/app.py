@@ -219,23 +219,39 @@ def handle_helper_respond(data):
     accepted = bool(data.get('accepted', False))
     distance = float(data.get('distanceMeters', 0.0))
     
-    if incident_id and helper_uid:
-        try:
-            if accepted:
-                result = helper_service.accept_incident(incident_id, helper_uid, distance)
-                if result['success']:
-                    socketio.emit('helper_accepted', {
-                        'incidentId': incident_id,
-                        'helperUid': helper_uid,
-                        'helperName': result.get('helperName', 'Volunteer'),
-                        'slotsFilled': result['slotsFilled'],
-                        'distanceMeters': distance,
-                        'missionId': result.get('missionId'),
-                    })
-            else:
-                helper_service.decline_incident(incident_id, helper_uid)
-        except Exception as e:
-            logger.error(f"Failed helper respond via socket: {e}")
+    if not incident_id or not helper_uid:
+        # Ack back so the Flutter HelperResponseScreen never waits on silence.
+        return {'success': False, 'message': 'incidentId and helperUid are required'}
+
+    try:
+        if accepted:
+            result = helper_service.accept_incident(incident_id, helper_uid, distance)
+            if result.get('success'):
+                socketio.emit('helper_accepted', {
+                    'incidentId': incident_id,
+                    'helperUid': helper_uid,
+                    'helperName': result.get('helperName', 'Volunteer'),
+                    'slotsFilled': result.get('slotsFilled', 0),
+                    'distanceMeters': distance,
+                    'missionId': result.get('missionId'),
+                })
+            # Return the accept/decline result as the Socket.IO ACK so the
+            # mobile client receives a structured {success, message} instead
+            # of an empty payload.
+            return {
+                'success': bool(result.get('success')),
+                'message': result.get('message', ''),
+                'slotsFilled': result.get('slotsFilled', 0),
+                'missionId': result.get('missionId'),
+            }
+        result = helper_service.decline_incident(incident_id, helper_uid)
+        return {
+            'success': bool(result.get('success')),
+            'message': result.get('message', 'Response recorded'),
+        }
+    except Exception as e:
+        logger.error(f"Failed helper respond via socket: {e}")
+        return {'success': False, 'message': 'Could not record response. Please try again.'}
 
 
 @socketio.on('stop_tracking')

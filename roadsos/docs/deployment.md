@@ -98,18 +98,31 @@ flutter pub get
 flutter test                                 # 7 unit/widget tests (5 live tests skip)
 ```
 
-**Where the backend lives matters:**
+**Where the backend lives — resolved centrally by `AppConfig`:**
+`app/lib/config/app_config.dart` is the **single source of truth** for the
+backend address. Every networked service (Socket.IO, the prediction HTTP
+client, the helper geohash index) resolves it from there, so you set the
+address **once** — it can no longer drift between files. Priority:
 
-| Device | `ROADSOS_BACKEND_URL` |
+1. `--dart-define=ROADSOS_BACKEND_URL=…` (explicit override)
+2. Platform default (no flag needed):
+
+| Device | Resolved automatically to |
 |---|---|
 | Android emulator | `http://10.0.2.2:5000` (default) |
-| iOS simulator (macOS host) | `http://127.0.0.1:5000` |
-| Physical device | `http://<your-LAN-IP>:5000` |
-| Desktop/web | `http://127.0.0.1:5000` |
+| iOS simulator / desktop / web | `http://127.0.0.1:5000` |
+| Physical device | `http://<your-LAN-IP>:5000` (must pass the flag) |
 
 ```powershell
-flutter run --dart-define=ROADSOS_BACKEND_URL=http://10.0.2.2:5000
+# physical device / LAN demo
+flutter run --dart-define=ROADSOS_BACKEND_URL=http://<PC-LAN-IP>:5000
 ```
+
+**Connection resilience (`SocketService`):** transports `polling` → upgrade to
+`websocket` (survives emulators/LANs where websocket-only fails), automatic
+reconnection with backoff, and a bounded outbox that **queues SOS events
+emitted while offline and flushes them on reconnect** so a `create_incident`
+is never silently dropped. `statusStream` exposes connectivity to the UI.
 
 Live end-to-end test (backend must be running):
 
@@ -127,11 +140,23 @@ cd ..\frontend_dashboard
 npx eslint src --ext .js,.jsx               # expect: 0 errors
 npm run build                               # expect: exit 0
 $env:CI='true'; npx react-scripts test --watchAll=false   # expect: 8 passed
-# flutter
+# flutter (12 = 7 unit/widget + 5 live E2E, backend running)
 cd ..\app
 flutter analyze --no-pub                    # expect: 0 errors (warnings/infos exit 1)
-flutter test                                # expect: 7 passed, 5 skipped
+flutter test --dart-define=ROADSOS_LIVE_E2E=true   # expect: 12 passed
 ```
+
+**Cross-stack connectivity suite (Flutter → backend → ML, 13 checks):**
+
+```powershell
+# backend must be running (python app.py) — HTTP + Socket.IO end-to-end
+cd roadsos\backend; python <repo>\connectivity_test.py   # expect: 13/13 passed
+```
+
+Proves: health, model availability + SHA-256, schema, two predictions whose
+probabilities **shift** (live model, not canned), 400 validation, incidents,
+demo simulate, analytics, socket connect, `create_incident → incident_created`
+echo, and the `helper_respond` **ack**.
 
 Full expected results and how they were produced: `docs/testing.md`.
 

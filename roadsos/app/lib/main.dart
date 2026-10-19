@@ -6,6 +6,7 @@ import 'package:roadsos_app/accident_detection/engine_builder.dart';
 import 'package:roadsos_app/accident_detection/engine/detection_engine.dart';
 import 'package:roadsos_app/emergency_handling/emergency_service.dart';
 import 'package:roadsos_app/services/socket_service.dart';
+import 'package:roadsos_app/config/app_config.dart';
 
 // Global singletons for active sensor streams and command orchestration
 late final DetectionEngine globalDetectionEngine;
@@ -33,7 +34,8 @@ void main() async {
   // Initialize Emergency Orchestrator Service
   globalEmergencyService = EmergencyService(
     detectionEngine: globalDetectionEngine,
-    emergencyContacts: ['+919876543210', '+918765432109'],
+    // Shared, editable contact list (AppConfig is the single source of truth).
+    emergencyContacts: AppConfig.emergencyContacts,
   );
 
   // Mount listeners to receive crash events
