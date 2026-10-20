@@ -6,6 +6,8 @@
 
 ---
 
+> 📖 **New here (or running the project for someone else)? Follow [`RUN.md`](RUN.md) — a numbered step-by-step guide from clone to testing, plus troubleshooting.**
+
 ## ⚡ Quick start (local, ~5 minutes)
 
 ### Prerequisites
