@@ -3,6 +3,19 @@
 > Anyone can run this project in ~5 minutes by following the steps in order.
 > Works on Windows (PowerShell). Linux/macOS notes are at the bottom.
 
+**Guide status**
+
+| Field | Value |
+|---|---|
+| Last verified | **2026-10-20 (UTC)** |
+| Verified on | Windows 10/11 · Python 3.13 · Node.js 18+ · Flutter (temp SDK) |
+| Verified live | backend `:5000` (model loaded, SHA-256 OK) + dashboard `:3000` (`webpack compiled successfully`) |
+| Commit verified | `c39b427` (branch `main`) → <https://github.com/Aveek29/RoadSOS> |
+| ML latency observed | 9–47 ms per prediction · model cold-load 7–55 s (hardware dependent) |
+
+> If a step behaves differently later, check the commit you cloned (`git log -1`) against the
+> verified commit above before assuming the guide is wrong.
+
 ---
 
 ## Before you start — check these
@@ -124,22 +137,63 @@ Press `Ctrl+C` in **both** terminal windows (backend first, then dashboard).
 
 ---
 
-## Optional — Flutter mobile app
+## Optional — Flutter mobile app (step by step)
+
+> **Yes, the phone app works too.** It needs Flutter + Android SDK (or a physical Android phone).
+> The backend must keep running (Step 4) while you use the app.
+
+### Step A — Install Flutter (one time)
+
+1. Download the Flutter SDK: <https://docs.flutter.dev/get-started/install>
+2. Add `flutter\bin` to your `PATH`, then verify:
+   ```powershell
+   flutter --version
+   flutter doctor        # fix anything marked with ✗ (Android toolchain)
+   ```
+3. For an emulator: open **Android Studio → Device Manager → Create Device**, or use a real phone with USB debugging on.
+
+### Step B — Get the app dependencies (one time)
 
 ```powershell
 cd RoadSOS\roadsos\app
 flutter pub get
-flutter run
 ```
 
-Then: **Profile → Severity Prediction → enter values → Predict**.
+### Step C — Run it against the backend
 
-- Android emulator: backend address `10.0.2.2:5000` is already the default.
-- Physical phone (same Wi-Fi): use your PC's LAN IP —
-  ```powershell
-  flutter run --dart-define=ROADSOS_BACKEND_URL=http://192.168.1.42:5000
-  ```
-  (find your IP with `ipconfig`)
+**Choose ONE case below based on where the app runs:**
+
+| Case | Command | Notes |
+|---|---|---|
+| **C1. Android emulator** | `flutter run` | Backend URL `10.0.2.2:5000` is the default — nothing extra needed |
+| **C2. Physical phone (same Wi-Fi)** | `flutter run --dart-define=ROADSOS_BACKEND_URL=http://<PC-LAN-IP>:5000` | Get `<PC-LAN-IP>` from `ipconfig` — the IPv4 address of your Wi-Fi adapter, e.g. `192.168.1.42` |
+| **C3. iOS device** | Needs a **Mac + Xcode**; then the same commands | Not possible from Windows |
+| **C4. Build a shareable APK** | `flutter build apk --release` | Needs Android SDK; output: `build\app\outputs\flutter-apk\app-release.apk` |
+
+**C2 in full (physical phone):**
+```powershell
+ipconfig                                  # note your Wi-Fi IPv4, e.g. 192.168.1.42
+# allow backend through the firewall (one time, admin PowerShell):
+New-NetFirewallRule -DisplayName "RoadSOS backend 5000" -Direction Inbound -LocalPort 5000 -Protocol TCP -Action Allow
+cd RoadSOS\roadsos\app
+flutter run --dart-define=ROADSOS_BACKEND_URL=http://192.168.1.42:5000
+```
+
+> ⚠️ The phone and the PC **must be on the same Wi-Fi**, and the backend must be started normally
+> (Step 4 binds `0.0.0.0:5000`). If the app shows no data, re-check the IP and the firewall rule.
+
+### Step D — Use it
+
+**Profile → Severity Prediction → enter values → Predict** → you get the same
+severity badge + probability bars as the dashboard.
+
+> ⚠️ **Not verified by us:** building a release APK (`flutter build apk`) was **NOT RUN** in our
+> environment — no Android SDK was available. Running via `flutter run` from a dev machine is verified.
+> Full status: [`roadsos/docs/testing.md`](roadsos/docs/testing.md)
+
+### Step E — Stop the app
+
+Press `q` in the `flutter run` terminal (the backend keeps running).
 
 ---
 
@@ -206,3 +260,9 @@ cd roadsos\frontend_dashboard; npm start
 ```
 
 Then open **<http://localhost:3000>**.
+
+---
+
+*Guide last verified 2026-10-20 (UTC) against commit `c39b427`. Commands, ports and expected
+outputs above match a real end-to-end run: model loaded with SHA-256 verified, dashboard compiled,
+and a live prediction returned from the backend.*
